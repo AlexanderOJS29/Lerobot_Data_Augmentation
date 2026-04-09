@@ -6,10 +6,8 @@ import re
 import shutil
 
 import cv2
-import huggingface_hub
 import pandas as pd
 from huggingface_hub import snapshot_download, HfApi
-#huggingface_hub.login() # Uncomment and run once to authenticate with your HF account for uploads
 from transforms import apply_transforms
 
 
@@ -103,10 +101,16 @@ def transform_video(input_path: str, output_path: str, transform_names: list[str
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    # mp4v is a widely supported codec for .mp4 containers
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+    # Prefer H.264 (avc1) to match original LeRobot videos and HF visualizer expectations
+    try:
+        fourcc = cv2.VideoWriter_fourcc(*"avc1")
+        writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        if not writer.isOpened():
+            raise RuntimeError("avc1 unavailable")
+    except Exception:
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
     # Seek to start frame if only processing a subset (e.g. --episodes filter)
     if frame_range is not None:
@@ -205,6 +209,12 @@ def copy_and_remap_parquet(src_dir: str, dst_dir: str, copies: int,
         rel_path = os.path.relpath(pq_path, src_dir)
         dst_path = os.path.join(dst_dir, rel_path)
 
+        if os.path.join("meta", "episodes") in pq_path:
+            # Copy episode metadata as-is, don't remap
+            os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+            shutil.copy2(pq_path, dst_path)
+            continue
+
         df = read_parquet(pq_path)
 
         # Filter by episode for chunked files (not per-episode named)
@@ -277,5 +287,9 @@ def upload_dataset(local_dir: str, repo_id: str) -> str:
         repo_id=repo_id,
         repo_type="dataset",
     )
-    url = f"https://huggingface.co/datasets/{repo_id}"
+    username, dataset_name = repo_id.split("/", 1)
+    url = (
+        f"https://huggingface.co/spaces/lerobot/visualize_dataset"
+        f"?path=%2F{username}%2F{dataset_name}%2Fepisode_0"
+    )
     return url
