@@ -159,36 +159,52 @@ python mirror_dataset.py \
 ---
 
 ## 🤖 AI Agent Workflow (Claude Code)
-This project was built using Claude Code to rapidly iterate through the LeRobot v3 specification. The development followed a structured "Scaffold-then-Implement" approach based on the following initial prompt:
 
-Initial System Prompt:
-"Build a LeRobot v3 dataset augmentation tool. The project structure is:
+This project was built iteratively with **Claude Code** (Sonnet 4.6) acting as a hands-on engineering collaborator — reading code, writing files, running tests, diagnosing failures, and patching bugs in the same session.
 
-augment.py: CLI entry point using argparse
-transforms.py: video augmentation functions (color_jitter, blur, gaussian_noise, sharpen)
-dataset_io.py: download from HF Hub, read/write parquet, upload folder to HF
+---
 
-Key constraints:
-Use opencv-python for video frame processing (CPU only, no GPU).
+### Phase 1 — Augmentation Pipeline (`augment.py`, `transforms.py`, `dataset_io.py`)
 
-Use huggingface_hub for download/upload.
+The initial build followed a structured **Scaffold-then-Implement** approach:
 
-Use pandas for parquet files.
+**Initial prompt:**
+> "Build a LeRobot v3 dataset augmentation tool. The project structure is:
+> `augment.py` (CLI), `transforms.py` (video transforms), `dataset_io.py` (HF Hub I/O).
+> Use opencv-python for video frame processing (CPU only). Use huggingface_hub for download/upload. Use pandas for parquet files. Parquet files are copied unchanged unless `--copies > 1`, in which case episode indices are remapped. Videos are read frame by frame, transformed, written back at the same fps. Must print the HF visualizer link at the end."
 
-Parquet files are copied unchanged unless --copies > 1, in which case episode indices are remapped.
+**What Claude Code did:**
 
-Videos are read frame by frame, transformed, written back at same fps.
+* **Module scaffolding:** Defined all three files with matching interfaces before implementing any logic, so the CLI argument routing was correct from the start.
+* **Transform math:** Implemented the HSV color jitter (per-channel random shifts in HSV space) and the unsharp mask for the `sharpen` transform.
+* **Chunked video handling:** Identified that LeRobot v3 concatenates all episodes into chunk files (`file-000.mp4`) rather than per-episode files, and built the frame-seeking logic in `transform_video` to process only the relevant frame range using `cap.set(cv2.CAP_PROP_POS_FRAMES, start)`.
+* **Episode remapping:** Wrote `remap_episodes()` to apply index offsets when `--copies > 1`, ensuring the output parquet stays contiguous.
+* **Metadata patching:** Implemented `update_info_json()` to patch `total_episodes`, `total_frames`, and `splits` so the HF visualizer accepts the output dataset.
+* **Codec fallback:** Added an `avc1 → mp4v` fallback in `cv2.VideoWriter` after discovering that `avc1` is not always available depending on the OpenCV build.
 
-Must print the HF visualizer link at the end.
+---
 
-Start by scaffolding all three files with stubs, then implement transforms.py first, then dataset_io.py, then augment.py."
+### Phase 2 — Trajectory Mirroring (`mirror_dataset.py`)
 
-How Claude Code was utilized:
+After the augmentation pipeline was stable, a second tool was requested: a mirroring tool that doubles the dataset by producing a horizontally-flipped copy of every trajectory.
 
-* Iterative Scaffolding: The agent first defined the interfaces for each module to ensure augment.py could correctly route CLI arguments to dataset_io.py.
+**Design constraint:** reuse all I/O from `dataset_io.py` — no duplicated download, upload, or metadata logic.
 
-* Logic Implementation: I used Claude to handle the complex math behind the HSV color jitter and unsharp mask sharpening in transforms.py.
+**What Claude Code did:**
 
-* Schema Enforcement: Claude Code was instrumental in writing the update_info_json function, ensuring that the final info.json met the strict requirements for the LeRobot Visualizer.
+* **Architecture:** Designed `mirror_dataset.py` to import `download_dataset`, `copy_non_data_files`, `upload_dataset`, and `update_info_json` directly from `dataset_io.py`, keeping the file focused purely on mirroring logic.
+* **Action negation:** Implemented `mirror_parquet()` to negate configurable action dimensions (`--mirror-dims`) per row, handling variable-length action vectors safely.
+* **Chunked video mirroring:** Built `process_chunked_video()` to make two passes over the source chunk — one writing original frames and one writing flipped frames — into a single valid output `file-000.mp4`, avoiding the broken `_mirror` suffix naming that appeared in the first run.
+* **Live test and bug fix (round 1):** On the first local test run, Claude spotted that the chunked video was processing all 50 source episodes (20,000 frames) instead of just the 2 requested. Fixed by computing per-episode frame ranges from the episodes metadata parquet and passing them to a seek-based reader.
+* **Live test and bug fix (round 2):** After running 10 real episodes, the HF visualizer returned *"Episode 0 not found in metadata"*. Claude diagnosed that `meta/episodes/chunk-000/file-000.parquet` was never written — `copy_non_data_files` skips parquet files, and the data walk only covers `data/`. Fixed by implementing `write_episodes_metadata()`, which reads the source episodes parquet, filters to the processed episodes, remaps `dataset_from_index`/`dataset_to_index` to be contiguous from 0, creates mirrored rows with the correct frame offsets, and writes the combined file to the output.
 
-* Debugging: The agent helped resolve frame-rate synchronization issues when rewriting augmented videos using cv2.VideoWriter.
+---
+
+### Development Principles Applied
+
+Throughout both phases Claude Code followed these rules, which kept the codebase clean:
+
+* **No duplication** — `mirror_dataset.py` shares all I/O with `dataset_io.py` rather than reimplementing it.
+* **No speculative abstractions** — helpers were only added when a concrete need appeared (e.g. `write_episodes_metadata` was added after the visualizer error, not preemptively).
+* **Diagnose before switching tactics** — both video bugs were diagnosed by reading error output and inspecting the actual parquet/video data before changing the approach.
+* **Test first, then ship** — each tool was run locally with `--no-upload --episodes 2` and output verified before the real upload command was handed back.
