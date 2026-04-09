@@ -47,7 +47,7 @@ pip install opencv-python pandas huggingface_hub pyarrow
 ### 2. Hugging Face Authentication
 The tool interacts directly with the Hugging Face Hub to download source datasets and upload augmented results:
 ```bash
-huggingface-cli login
+hf auth login
 ```
 
 ---
