@@ -68,6 +68,7 @@ python augment.py \
     --brightness 0.3 \
     --noise-std 15.0
 ```
+Example visualization: https://huggingface.co/spaces/lerobot/visualize_dataset?path=%2FASet97%2Faugmented-aloha-episodes-10-color-jitter-gaussian-noise%2Fepisode_0
 
 ### Dataset Multiplication (Expansion)
 You can create multiple augmented copies of each episode to expand your training data. The command below creates **3 copies** for every 1 original episode, automatically remapping indices:
