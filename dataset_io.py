@@ -6,9 +6,10 @@ import re
 import shutil
 
 import cv2
+import huggingface_hub
 import pandas as pd
 from huggingface_hub import snapshot_download, HfApi
-
+#huggingface_hub.login() # Uncomment and run once to authenticate with your HF account for uploads
 from transforms import apply_transforms
 
 
