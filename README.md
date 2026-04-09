@@ -1,7 +1,12 @@
 # LeRobot Dataset Augmenter
 
 ## 🎯 Purpose
-This tool provides an end-to-end automated pipeline to augment and expand **LeRobot v3** robotics datasets. It is specifically designed to address the challenges of imitation learning by diversifying camera observations while maintaining strict synchronization with robot states, actions, and episode indexing.
+This project provides an end-to-end automated pipeline to augment and expand **LeRobot v3** robotics datasets. It includes two tools:
+
+- **`augment.py`** — applies visual transforms (color jitter, blur, noise, sharpen) to camera streams
+- **`mirror_dataset.py`** — generates horizontally-mirrored trajectory copies, doubling the dataset with negated action dimensions
+
+Both tools are specifically designed to address the challenges of imitation learning by diversifying demonstrations while maintaining strict synchronization with robot states, actions, and episode indexing.
 
 ## 🏗️ How it Handles Data
 The tool performs a deep transformation of the LeRobot v3 data structure to ensure the output is ready for training and visualization:
@@ -94,6 +99,55 @@ Note: You can also use --work-dir <path> to specify exactly where on your machin
 
 ---
 
+## 🪞 Trajectory Mirroring (`mirror_dataset.py`)
+
+The mirroring tool doubles a dataset by producing a horizontally-flipped copy of every episode. Each mirrored copy has its action dimensions negated and is assigned a new episode index (`original_index + total_original_episodes`), so the output is a single valid dataset containing both the originals and their mirrors.
+
+### What it does per episode
+* **Video:** every frame is flipped horizontally with `cv2.flip(frame, 1)` across all cameras
+* **Actions:** the action dimensions listed in `--mirror-dims` are negated (e.g. left/right and rotation axes)
+* **Episode indices:** mirrored episodes are offset by `total_episodes` from the source dataset so indices remain contiguous
+* **Metadata:** `meta/episodes/chunk-000/file-000.parquet` is extended with remapped frame ranges and timestamps; `meta/info.json` is updated with the doubled episode count
+
+### Example Commands
+
+**Basic run — 10 episodes, upload to HF:**
+```bash
+python mirror_dataset.py \
+    --source lerobot/aloha_static_cups_open \
+    --output <your-username>/mirrored-aloha \
+    --episodes 10
+```
+
+**Custom mirror dimensions (default is `0,2`):**
+```bash
+python mirror_dataset.py \
+    --source lerobot/aloha_static_cups_open \
+    --output <your-username>/mirrored-aloha \
+    --mirror-dims 0,1,2
+```
+
+**Local test run without uploading:**
+```bash
+python mirror_dataset.py \
+    --source lerobot/aloha_static_cups_open \
+    --output <your-username>/mirrored-aloha \
+    --episodes 2 \
+    --no-upload
+```
+
+### CLI Reference
+
+| Argument | Default | Description |
+| :--- | :--- | :--- |
+| `--source` | *(required)* | HF repo ID of the source dataset |
+| `--output` | *(required)* | HF repo ID for the output dataset |
+| `--mirror-dims` | `0,2` | Comma-separated action dimension indices to negate |
+| `--episodes` | all | Only process the first N episodes (useful for testing) |
+| `--no-upload` | off | Skip HF upload, save output locally only |
+| `--work-dir` | system temp | Custom working directory for intermediate files |
+
+---
 
 ## 📦 Core Libraries
 * `opencv-python`: High-performance video I/O and frame transformation.
